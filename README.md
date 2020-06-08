@@ -2,7 +2,7 @@
 
 [![Nuget](https://img.shields.io/nuget/v/Elsa)](https://www.nuget.org/packages/Elsa/)
 [![MyGet (with prereleases)](https://img.shields.io/myget/elsa/vpre/Elsa.Core.svg?label=myget)](https://www.myget.org/gallery/elsa)
-[![Build status](https://ci.appveyor.com/api/projects/status/rqg10opfpy78yiga/branch/develop?svg=true)](https://ci.appveyor.com/project/sfmskywalker/elsa/branch/develop)
+[![Build status](https://ci.appveyor.com/api/projects/status/rqg10opfpy78yiga/branch/develop?svg=true)](https://ci.appveyor.com/project/sfmskywalker/elsa-preview/branch/develop)
 [![Gitter](https://badges.gitter.im/elsa-workflows/community.svg)](https://gitter.im/elsa-workflows/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
 [![Stack Overflow questions](https://img.shields.io/badge/stackoverflow-elsa_workflows-orange.svg)]( http://stackoverflow.com/questions/tagged/elsa-workflows )
 ![Docker Pulls](https://img.shields.io/docker/pulls/elsaworkflows/elsa-dashboard?label=elsa%20dashboard%3Adocker%20pulls)
@@ -191,3 +191,12 @@ In order to build & run Elsa on your local machine, follow these steps:
 3. Execute gulp build from the directory src\dashboard\Elsa.Dashboard\Theme\argon-dashboard
 4. Open a shell and navigate to `src/samples/Sample16` and run `dotnet run`.
 5. Navigate to https://localhost:8632/elsa/home
+
+# Code of Conduct
+
+This project has adopted the code of conduct defined by the Contributor Covenant to clarify expected behavior in our community.
+For more information see the [.NET Foundation Code of Conduct](https://dotnetfoundation.org/code-of-conduct). 
+
+### .NET Foundation
+
+This project is supported by the [.NET Foundation](https://dotnetfoundation.org).
