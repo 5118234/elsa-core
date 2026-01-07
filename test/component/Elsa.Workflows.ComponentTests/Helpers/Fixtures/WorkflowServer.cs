@@ -1,26 +1,25 @@
 using System.Reflection;
 using Elsa.Alterations.Extensions;
 using Elsa.Caching;
-using Elsa.EntityFrameworkCore.Extensions;
-using Elsa.EntityFrameworkCore.Modules.Alterations;
-using Elsa.EntityFrameworkCore.Modules.Identity;
-using Elsa.EntityFrameworkCore.Modules.Management;
-using Elsa.EntityFrameworkCore.Modules.Runtime;
 using Elsa.Extensions;
 using Elsa.Identity.Providers;
-using Elsa.MassTransit.Extensions;
+using Elsa.Persistence.EFCore.Extensions;
+using Elsa.Persistence.EFCore.Modules.Alterations;
+using Elsa.Persistence.EFCore.Modules.Identity;
+using Elsa.Persistence.EFCore.Modules.Management;
+using Elsa.Persistence.EFCore.Modules.Runtime;
 using Elsa.Testing.Shared.Handlers;
 using Elsa.Testing.Shared.Services;
-using Elsa.Workflows.ComponentTests.Consumers;
 using Elsa.Workflows.ComponentTests.Decorators;
 using Elsa.Workflows.ComponentTests.Materializers;
-using Elsa.Workflows.ComponentTests.Scenarios.Activities.ForEach;
-using Elsa.Workflows.ComponentTests.Services;
+using Elsa.Workflows.ComponentTests.Scenarios.DistributedLockResilience.Mocks;
+using Elsa.Workflows.ComponentTests.Scenarios.HostMethodActivities;
 using Elsa.Workflows.ComponentTests.WorkflowProviders;
 using Elsa.Workflows.Management;
 using Elsa.Workflows.Runtime.Distributed.Extensions;
 using FluentStorage;
-using Hangfire.Annotations;
+using JetBrains.Annotations;
+using Medallion.Threading;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
@@ -70,6 +69,7 @@ public class WorkflowServer(Infrastructure infrastructure, string url) : WebAppl
             {
                 elsa.AddWorkflowsFrom<WorkflowServer>();
                 elsa.AddActivitiesFrom<WorkflowServer>();
+                elsa.AddActivityHost<TestHostMethod>();
                 elsa.UseDefaultAuthentication(defaultAuthentication => defaultAuthentication.UseAdminApiKey());
                 elsa.UseFluentStorageProvider(sp =>
                 {
@@ -82,29 +82,29 @@ public class WorkflowServer(Infrastructure infrastructure, string url) : WebAppl
                     var workflowsDirectory = Path.Join(workflowsDirectorySegments);
                     return StorageFactory.Blobs.DirectoryFiles(workflowsDirectory);
                 });
-                elsa.UseMassTransit(massTransit =>
+                elsa.UseIdentity(identity => identity.UseEntityFrameworkCore(ef =>
                 {
-                    //massTransit.UseRabbitMq(rabbitMqConnectionString);
-                    massTransit.Services.AddSingleton<WorkflowDefinitionEvents>();
-                    massTransit.AddConsumer<WorkflowDefinitionEventConsumer>("elsa-test-workflow-definition-updates", true);
-                });
-                elsa.UseIdentity(identity => identity.UseEntityFrameworkCore(ef => ef.UsePostgreSql(dbConnectionString)));
+                    //ef.UsePostgreSql(dbConnectionString);
+                    ef.UseSqlServer(dbConnectionString);
+                }));
                 elsa.UseWorkflowManagement(management =>
                 {
-                    management.UseEntityFrameworkCore(ef => ef.UsePostgreSql(dbConnectionString));
-                    management.UseMassTransitDispatcher();
+                    management.UseEntityFrameworkCore(ef =>
+                    {
+                        //ef.UsePostgreSql(dbConnectionString);
+                        ef.UseSqlServer(dbConnectionString);
+                    });
                     management.UseCache();
                 });
                 elsa.UseWorkflowRuntime(runtime =>
                 {
-                    runtime.UseEntityFrameworkCore(ef => ef.UsePostgreSql(dbConnectionString));
+                    runtime.UseEntityFrameworkCore(ef =>
+                    {
+                        //ef.UsePostgreSql(dbConnectionString);
+                        ef.UseSqlServer(dbConnectionString);
+                    });
                     runtime.UseCache();
-                    runtime.UseMassTransitDispatcher();
                     runtime.UseDistributedRuntime();
-                });
-                elsa.UseDistributedCache(distributedCaching =>
-                {
-                    distributedCaching.UseMassTransit();
                 });
                 elsa.UseJavaScript(options =>
                 {
@@ -116,7 +116,11 @@ public class WorkflowServer(Infrastructure infrastructure, string url) : WebAppl
                 });
                 elsa.UseAlterations(alterations =>
                 {
-                    alterations.UseEntityFrameworkCore(ef => ef.UsePostgreSql(dbConnectionString));
+                    alterations.UseEntityFrameworkCore(ef =>
+                    {
+                        //ef.UsePostgreSql(dbConnectionString);
+                        ef.UseSqlServer(dbConnectionString);
+                    });
                 });
                 elsa.UseHttp(http =>
                 {
@@ -127,6 +131,18 @@ public class WorkflowServer(Infrastructure infrastructure, string url) : WebAppl
 
         builder.ConfigureTestServices(services =>
         {
+            // Decorate IDistributedLockProvider with TestDistributedLockProvider so tests use it
+            services.Decorate<IDistributedLockProvider, TestDistributedLockProvider>();
+            
+            // Also register TestDistributedLockProvider as itself so tests can access it directly for configuration
+            services.AddSingleton(sp =>
+            {
+                var provider = sp.GetRequiredService<IDistributedLockProvider>();
+                if (provider is not TestDistributedLockProvider testProvider)
+                    throw new InvalidOperationException($"Expected IDistributedLockProvider to be decorated with TestDistributedLockProvider, but got {provider.GetType().Name}");
+                return testProvider;
+            });
+
             services
                 .AddSingleton<SignalManager>()
                 .AddScoped<AsyncWorkflowRunner>()
@@ -138,6 +154,7 @@ public class WorkflowServer(Infrastructure infrastructure, string url) : WebAppl
                 .AddWorkflowsProvider<TestWorkflowProvider>()
                 .AddNotificationHandlersFrom<WorkflowEventHandlers>()
                 .Decorate<IChangeTokenSignaler, EventPublishingChangeTokenSignaler>()
+                .Decorate<IDistributedLockProvider, TestDistributedLockProvider>()
                 ;
         });
     }

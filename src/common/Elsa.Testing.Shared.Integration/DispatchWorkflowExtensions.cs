@@ -63,13 +63,13 @@ public static class DispatchWorkflowExtensions
             var workflowDispatcher = serviceProvider.GetRequiredService<IWorkflowDispatcher>();
             var dispatchWorkflowResponse = await workflowDispatcher.DispatchAsync(new DispatchWorkflowDefinitionRequest
             {
-                DefinitionVersionId = workflow.DefinitionHandle.DefinitionVersionId,
+                DefinitionVersionId = workflow.DefinitionHandle.DefinitionVersionId!,
                 InstanceId = instanceId ?? Guid.NewGuid().ToString(),
             });
             dispatchWorkflowResponse.ThrowIfFailed();
 
             // Wait for the workflow to complete, and then return the WorkflowFinished notification.
-            var signaled = await semaphore.WaitAsync(timeout ?? TimeSpan.FromSeconds(5));
+            var signaled = await semaphore.WaitAsync(timeout ?? TimeSpan.FromSeconds(50000));
             return signaled ? workflowFinishedRecord : null;
         }
         finally

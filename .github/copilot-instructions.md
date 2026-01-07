@@ -2,15 +2,15 @@
 
 ## Repository Overview
 
-**Elsa Workflows** is a powerful .NET workflow library that enables workflow execution within any .NET application. This is version 3.0, supporting .NET 9.0 and providing both a visual designer and programmatic workflow definition capabilities.
+**Elsa Workflows** is a powerful .NET workflow library that enables workflow execution within any .NET application. This is version 3.0, supporting .NET 8.0, .NET 9.0 and .NET 10.0 and providing both a visual designer (from a different repository, elsa-studio) and programmatic workflow definition capabilities.
 
 ### Key Statistics
-- **Language**: C# (.NET 9.0)
+- **Language**: C# (.NET 10.0)
 - **Architecture**: Modular library with 104+ projects
 - **Code Size**: ~3,500 C# files across modules
 - **License**: MIT
 - **Build System**: NUKE build automation
-- **Target Frameworks**: .NET 9.0 (primary)
+- **Target Frameworks**: .NET 10.0 (primary)
 
 ## High-Level Architecture
 
@@ -19,9 +19,6 @@
 src/
 ├── apps/               # Reference applications (5 projects)
 │   ├── Elsa.Server.Web            # Workflow server only
-│   ├── Elsa.ServerAndStudio.Web    # Combined server + studio  
-│   ├── Elsa.Studio.Web             # Studio web interface
-│   ├── ElsaStudioWebAssembly       # Studio WebAssembly app
 │   └── Elsa.Server.LoadBalancer    # Load balancer
 ├── common/             # Shared libraries (8 projects)
 ├── modules/            # Core functionality modules (70+ projects)
@@ -46,27 +43,13 @@ docker/                 # Docker configurations
 - **Elsa.Workflows.Runtime**: Workflow execution runtime
 - **Elsa.Workflows.Api**: RESTful API for workflow management
 - **Elsa.Workflows.Management**: Workflow definition management
-- **Elsa modules**: Specialized functionality (HTTP, email, scheduling, etc.)
+- **Elsa modules**: Specialized functionality (HTTP, persistence, scheduling, etc.)
 
 ## Build Instructions
 
 ### Prerequisites
-- **.NET 9.0 SDK** (verified working version: 9.0.305)
+- **.NET 10.0 SDK**
 - **Build time**: Initial restore ~1-2 minutes, full compile ~5-10 minutes
-
-### Critical Build Information
-
-⚠️ **IMPORTANT**: The repository has external dependencies that may cause build failures:
-
-1. **External NuGet Feeds**: Some projects depend on packages from:
-   - `https://f.feedz.io/elsa-workflows/elsa-3/nuget/index.json` (Elsa Studio packages)
-   - `https://f.feedz.io/sfmskywalker/webhooks-core/nuget/index.json` (Webhooks packages)
-
-2. **Build Failure Workarounds**:
-   - Studio apps (`Elsa.Studio.Web`, `ElsaStudioWebAssembly`, `Elsa.ServerAndStudio.Web`) depend on prebuilt studio packages that may not be accessible
-   - Server app (`Elsa.Server.Web`) depends on WebhooksCore package that may not be accessible  
-   - Core workflow functionality can be built independently
-   - Some test projects may fail due to missing external packages
 
 ### Build Commands
 
@@ -111,11 +94,10 @@ find test/unit -name "*.csproj" | head -5 | xargs -I {} dotnet build {}
 ### Expected Build Warnings
 - `NU1900`: Unable to load service index for external feeds (safe to ignore)
 - `NU1801`: Service index warnings for feedz.io sources (safe to ignore)
-- `NU1101`: Missing Elsa.Studio packages (blocks studio app builds)
 
 ### Successful Build Indicators
 - Core modules (Elsa.Workflows.Core, etc.) compile successfully
-- Server applications (Elsa.Server.Web) build without the studio UI
+- Server applications (Elsa.Server.Web) build
 - Most modules show "succeeded with X warning(s)" (warnings are acceptable)
 
 ## Testing
@@ -142,7 +124,7 @@ dotnet test --no-build --no-restore [project-path]
 
 ### Code Standards
 - **Language version**: C# latest
-- **Target framework**: .NET 9.0  
+- **Target framework**: .NET 10.0  
 - **Nullable reference types**: Enabled
 - **Implicit usings**: Enabled
 - **EditorConfig**: Configured (4-space indentation, CRLF line endings)
@@ -154,23 +136,22 @@ dotnet test --no-build --no-restore [project-path]
 - **Async/await**: Extensive use throughout for scalability
 
 ### Common Gotchas
-1. **External Dependencies**: Studio-related projects require external packages
-2. **NuGet Source Mapping**: Configured in NuGet.Config, restricts where packages can be sourced
-3. **Multiple Target Frameworks**: Some projects conditionally target different frameworks
-4. **Build Warnings**: Many NU1900/NU1801 warnings are expected and safe
+1. **NuGet Source Mapping**: Configured in NuGet.Config, restricts where packages can be sourced
+2**Multiple Target Frameworks**: Some projects conditionally target different frameworks
+3**Build Warnings**: Many NU1900/NU1801 warnings are expected and safe
 
 ## Continuous Integration
 
 ### GitHub Actions Workflow
 - **Trigger**: Pull requests to `main` branch
 - **Runner**: ubuntu-latest  
-- **.NET Version**: 9.x (latest)
+- **.NET Version**: 10.x (latest)
 - **Commands**: `./build.cmd Compile Test Pack`
 - **File**: `.github/workflows/pr.yml` (auto-generated by NUKE)
 
 ### CI Pipeline Steps
 1. Checkout code
-2. Setup .NET 9.x SDK
+2. Setup .NET 10.x SDK
 3. Execute: Compile → Test → Pack
 4. Expected warnings for external feed access
 5. Studio apps may be excluded from CI builds
@@ -216,15 +197,68 @@ Multiple Docker configurations available:
    dotnet build --no-restore
    ```
 
+## Running the Applications
+
+### Development Workflow Server
+
+To run the workflow server for development:
+
+```bash
+cd src/apps/Elsa.Server.Web
+dotnet restore --ignore-failed-sources
+dotnet run
+```
+
+The server will start on the configured ports (check `appsettings.json` or environment variables).
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Missing External Packages**: If you encounter `NU1101` errors for Elsa.Studio packages:
+   - This is expected for studio-related apps
+   - Focus development on core workflow modules instead
+   - Or use Docker images that have pre-built studio components
+
+2. **Build Fails on Server Apps**: If `Elsa.Server.Web` fails due to WebhooksCore:
+   - This is a known issue with external package feeds
+   - Try building individual core modules instead
+   - Use `--ignore-failed-sources` flag consistently
+
+3. **Test Failures**: If many tests fail to run:
+   - External package dependencies may be unavailable
+   - Run tests for specific core modules individually
+   - Focus on tests that don't require studio packages
+
+4. **Slow Initial Build**: First restore and compile can take 5-10+ minutes:
+   - This is normal for a large solution with 100+ projects
+   - Subsequent builds are much faster (incremental)
+   - Consider building specific projects/modules when iterating
+
+## Additional Resources
+
+### Documentation
+- **Official Documentation**: [https://docs.elsaworkflows.io/](https://docs.elsaworkflows.io/)
+- **README**: See [README.md](../README.md) for quick start and features overview
+- **Contributing Guide**: See [CONTRIBUTING.md](../CONTRIBUTING.md) for contribution guidelines
+
+### Community Support
+- **GitHub Issues**: [Report bugs and request features](https://github.com/elsa-workflows/elsa-core/issues)
+- **GitHub Discussions**: [Ask questions and discuss](https://github.com/elsa-workflows/elsa-core/discussions)
+- **Discord**: [Join the community chat](https://discord.gg/hhChk5H472)
+- **Stack Overflow**: [Tag: elsa-workflows](http://stackoverflow.com/questions/tagged/elsa-workflows)
+
+### Enterprise Support
+- **ELSA-X**: [Professional support and enterprise solutions](https://elsa-x.io)
+
 ## Important Notes for Coding Agents
 
 1. **Always use `--ignore-failed-sources`** when restoring packages
-2. **Focus on core workflow functionality** rather than studio UI components  
-3. **Studio apps require external packages** that may not be accessible
-4. **Build warnings are normal** - don't try to fix NU1900/NU1801 warnings
-5. **Test individual modules** rather than solution-wide tests when external deps fail
-6. **Use direct dotnet commands** for building specific components when NUKE fails
-7. **Check project references** before attempting builds - some projects have conditional references
-8. **Start with core modules** like `Elsa.Workflows.Core`, `Elsa.Workflows.Runtime` which are more likely to build successfully
+2. **Focus on core workflow functionality**
+3. **Build warnings are normal** - don't try to fix NU1900/NU1801 warnings
+4. **Test individual modules** rather than solution-wide tests when external deps fail
+5. **Use direct dotnet commands** for building specific components when NUKE fails
+6. **Check project references** before attempting builds - some projects have conditional references
+7. **Start with core modules** like `Elsa.Workflows.Core`, `Elsa.Workflows.Runtime` which are more likely to build successfully
 
 Trust these instructions for build and development workflows. Only search for additional information if these instructions are incomplete or found to be incorrect.

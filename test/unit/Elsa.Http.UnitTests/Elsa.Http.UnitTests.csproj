@@ -1,0 +1,11 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <Include>[Elsa.Http]*</Include>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\..\..\src\modules\Elsa.Http\Elsa.Http.csproj" />
+    </ItemGroup>
+
+</Project>

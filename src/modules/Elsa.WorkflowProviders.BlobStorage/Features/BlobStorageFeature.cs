@@ -3,6 +3,7 @@ using Elsa.Features.Abstractions;
 using Elsa.Features.Attributes;
 using Elsa.Features.Services;
 using Elsa.WorkflowProviders.BlobStorage.Contracts;
+using Elsa.WorkflowProviders.BlobStorage.Handlers;
 using Elsa.WorkflowProviders.BlobStorage.Providers;
 using Elsa.Workflows.Management.Features;
 using FluentStorage;
@@ -15,7 +16,6 @@ namespace Elsa.WorkflowProviders.BlobStorage.Features;
 /// A feature that enables the FluentStorage workflow definition provider.
 /// </summary>
 [DependsOn(typeof(WorkflowManagementFeature))]
-[DependsOn(typeof(DslIntegrationFeature))]
 public class BlobStorageFeature : FeatureBase
 {
     /// <inheritdoc />
@@ -32,7 +32,11 @@ public class BlobStorageFeature : FeatureBase
     public override void Apply()
     {
         Services.AddScoped<IBlobStorageProvider>(sp => new BlobStorageProvider(BlobStorage(sp)));
-        Services.AddWorkflowDefinitionProvider<BlobStorageWorkflowsProvider>();
+
+        // Register the JSON format handler (built-in support)
+        Services.AddScoped<IBlobWorkflowFormatHandler, JsonBlobWorkflowFormatHandler>();
+
+        Services.AddWorkflowsProvider<BlobStorageWorkflowsProvider>();
     }
 
     /// <summary>

@@ -43,15 +43,6 @@ public static class ModuleExtensions
     }
 
     /// <summary>
-    /// Adds the Elsa DSL integration feature.
-    /// </summary>
-    public static WorkflowManagementFeature UseDslIntegration(this WorkflowManagementFeature feature, Action<DslIntegrationFeature>? configure = null)
-    {
-        feature.Module.Configure(configure);
-        return feature;
-    }
-
-    /// <summary>
     /// Adds all types implementing <see cref="IActivity"/> to the system.
     /// </summary>
     public static IModule AddActivitiesFrom<TMarkerType>(this IModule module) => module.UseWorkflowManagement(management => management.AddActivitiesFrom<TMarkerType>());
@@ -60,6 +51,11 @@ public static class ModuleExtensions
     /// Adds the specified activity type to the system.
     /// </summary>
     public static IModule AddActivity<T>(this IModule module) where T : IActivity => module.UseWorkflowManagement(management => management.AddActivity<T>());
+
+    /// <summary>
+    /// Registers the specified activity host type to the workflow system.
+    /// </summary>
+    public static IModule AddActivityHost<T>(this IModule module) where T : class => module.UseWorkflowManagement(management => management.AddActivityHost<T>());
     
     /// <summary>
     /// Removes the specified activity type from the system.

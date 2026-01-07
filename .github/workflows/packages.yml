@@ -1,4 +1,5 @@
 name: Packages
+
 on:
   workflow_dispatch:
   push:
@@ -11,19 +12,106 @@ on:
       - 'enh/*'
       - 'rc/*'
       - 'develop/*'
+      - 'release/*'
       - 'codex/*'
   release:
-    types: [ prereleased, published ]
+    types: [prereleased, published]
+
 env:
-  base_version: '3.5.2'
+  base_version: '3.7.0'
   feedz_feed_source: 'https://f.feedz.io/elsa-workflows/elsa-3/nuget/index.json'
   nuget_feed_source: 'https://api.nuget.org/v3/index.json'
 
 jobs:
-  build:
-    name: Build packages
+  test:
+    name: Test with coverage
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET SDKs
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore solution
+        run: dotnet restore Elsa.sln
+
+      - name: Build solution
+        run: dotnet build Elsa.sln --no-restore --configuration Release
+
+      - name: Prepare coverage directory
+        run: |
+          rm -rf artifacts/coverage
+          mkdir -p artifacts/coverage
+
+      - name: Run tests with coverage
+        run: |
+          set -euo pipefail
+          mapfile -t projects < <(find test -type f -name '*.csproj' | sort)
+          if [ ${#projects[@]} -eq 0 ]; then
+            echo "No test projects were found in the test directory." >&2
+            exit 1
+          fi
+          for project in "${projects[@]}"; do
+            echo "Running tests with coverage for ${project}"
+            dotnet test "$project" --configuration Release --no-build --logger "GitHubActions;report-warnings=false" /p:CollectCoverage=true
+          done
+
+      - name: Dump docker logs on failure
+        if: failure()
+        run: |
+          echo "=== Docker containers ==="
+          docker ps -a || true
+          echo "=== Docker logs ==="
+          for container in $(docker ps -aq); do
+            echo "--- Logs for container $container ---"
+            docker logs "$container" 2>&1 | tail -100 || true
+          done
+
+      - name: Install ReportGenerator
+        run: dotnet tool install -g dotnet-reportgenerator-globaltool
+
+      - name: Generate HTML coverage report
+        run: |
+          reportgenerator \
+            "-reports:./artifacts/coverage/**/coverage.cobertura.xml" \
+            "-targetdir:./artifacts/coverage-report" \
+            "-reporttypes:Html;Cobertura;TextSummary" \
+            "-verbosity:Info"
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: artifacts/coverage
+
+      - name: Upload Pages artifact
+        if: always() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop/3.6.0')
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: './artifacts/coverage-report'
+
+  build:
+    name: Build packages
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: ${{ github.event_name != 'pull_request' }}
     steps:
       - name: Extract branch name
         run: |
@@ -31,28 +119,31 @@ jobs:
           BRANCH_NAME=${BRANCH_NAME#refs/heads/} # remove the refs/heads/ prefix
           # Extract the last part after the last slash of the branch name, if any, e.g., feature/issue-123 -> issue-123 and use it as the version prefix.
           PACKAGE_PREFIX=$(echo $BRANCH_NAME | rev | cut -d/ -f1 | rev | tr '_' '-')
-          
+
           # If the branch name is main, use the preview version. Otherwise, use the branch name as the version prefix.
-          if [[ "${BRANCH_NAME}" == "main" || "${BRANCH_NAME}" =~ ^develop/ ]]; then
+          if [[ "${BRANCH_NAME}" == "main" || "${BRANCH_NAME}" =~ ^develop/ || "${BRANCH_NAME}" =~ ^release/ ]]; then
               PACKAGE_PREFIX="preview"
           fi
-          
+
           echo "Ref: ${{ github.ref }}"
           echo "Branch name: ${BRANCH_NAME}"
           echo "Package prefix: ${PACKAGE_PREFIX}"
           echo "BRANCH_NAME=${BRANCH_NAME}" >> $GITHUB_ENV
           echo "PACKAGE_PREFIX=${PACKAGE_PREFIX}" >> $GITHUB_ENV
+
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Verify commit exists in branch
         run: |
-          if [[ "${{ github.ref }}" == refs/tags/* && "${{ github.event_name }}" == "release" && ("${{ github.event.action }}" == "published" || "${{ github.event.action }}" == "prereleased")]]; then
+          if [[ "${{ github.ref }}" == refs/tags/* && "${{ github.event_name }}" == "release" && ("${{ github.event.action }}" == "published" || "${{ github.event.action }}" == "prereleased") ]]; then
             git fetch --no-tags --prune --depth=1 origin +refs/heads/*:refs/remotes/origin/*
-            git branch --remote --contains | grep origin/patch/3.5.2
+            git branch --remote --contains | grep origin/main
           else
             git fetch --no-tags --prune --depth=1 origin +refs/heads/*:refs/remotes/origin/*
             git branch --remote --contains | grep origin/${BRANCH_NAME}
           fi
+
       - name: Set VERSION variable
         run: |
           if [[ "${{ github.ref }}" == refs/tags/* && "${{ github.event_name }}" == "release" && ("${{ github.event.action }}" == "published" || "${{ github.event.action }}" == "prereleased") ]]; then
@@ -62,35 +153,21 @@ jobs:
           else
             echo "VERSION=${{env.base_version}}-preview.${{github.run_number}}" >> $GITHUB_ENV
           fi
-      #      - name: Set up JDK 17
-      #        uses: actions/setup-java@v2
-      #        with:
-      #          java-version: '17'
-      #          distribution: 'adopt'
+
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 9.x
-      #      - name: Install SonarScanner for .NET
-      #        run: dotnet tool install --global dotnet-sonarscanner
-      #      - name: Install Coverlet for code coverage
-      #        run: dotnet tool install --global coverlet.console
-      #      - name: Begin SonarCloud analysis
-      #        env:
-      #          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      #        run: dotnet sonarscanner begin /k:"elsa-workflows_elsa-core" /o:"elsa-workflows" /d:sonar.host.url="https://sonarcloud.io" /d:sonar.token="${{ secrets.SONAR_TOKEN }}" /d:sonar.exclusions=**/obj/**,**/*.dll,build/**,samples/**,src/apps/** /d:"sonar.verbose=true" /d:sonar.cs.opencover.reportsPaths=**/testresults/**/coverage.opencover.xml
-      - name: Compile+Test+Pack
-        run: ./build.sh Compile+Test+Pack --version ${VERSION} --analyseCode true
-      #      - name: End SonarCloud analysis
-      #        env:
-      #          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      #        run: dotnet sonarscanner end /d:sonar.token="${{ secrets.SONAR_TOKEN }}"
+          dotnet-version: 10.x
+
+      - name: Compile+Pack
+        run: ./build.sh Compile+Pack --version ${VERSION} --analyseCode true
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: elsa-nuget-packages
           path: packages/*nupkg
         if: ${{ github.event_name == 'release' || github.event_name == 'push'}}
-  
+
   publish_preview_feedz:
     name: Publish to feedz.io
     needs: build
@@ -120,3 +197,19 @@ jobs:
 
       - name: Publish to nuget.org
         run: dotnet nuget push *.nupkg -k ${{ secrets.NUGET_API_KEY }} -s ${{ env.nuget_feed_source }} --skip-duplicate
+
+  deploy_coverage:
+    name: Deploy coverage to GitHub Pages
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop/3.6.0'
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

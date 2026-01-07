@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Elsa.Extensions;
 using Elsa.Mediator.Contracts;
+using Elsa.Workflows.Attributes;
 using Elsa.Workflows.CommitStates;
 using Elsa.Workflows.Middleware.Activities;
 using Elsa.Workflows.Models;
@@ -10,6 +11,7 @@ using Elsa.Workflows.Runtime.Notifications;
 using Elsa.Workflows.Runtime.Stimuli;
 using JetBrains.Annotations;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Elsa.Workflows.Runtime.Middleware.Activities;
 
@@ -23,8 +25,9 @@ public class BackgroundActivityInvokerMiddleware(
     IIdentityGenerator identityGenerator,
     IBackgroundActivityScheduler backgroundActivityScheduler,
     ICommitStrategyRegistry commitStrategyRegistry,
-    IMediator mediator)
-    : DefaultActivityInvokerMiddleware(next, commitStrategyRegistry, logger)
+    IMediator mediator,
+    IOptions<CommitStateOptions> commitStateOptions)
+    : DefaultActivityInvokerMiddleware(next, commitStrategyRegistry, commitStateOptions, logger)
 {
     internal static string GetBackgroundActivityOutputKey(string activityNodeId) => $"__BackgroundActivityOutput:{activityNodeId}";
     internal static string GetBackgroundActivityOutcomesKey(string activityNodeId) => $"__BackgroundActivityOutcomes:{activityNodeId}";
@@ -103,11 +106,24 @@ public class BackgroundActivityInvokerMiddleware(
 
         return !GetIsBackgroundExecution(context)
                && context.WorkflowExecutionContext.ExecuteDelegate == null
-               && (kind is ActivityKind.Job || (kind == ActivityKind.Task && activity.GetRunAsynchronously()));
+               && (kind is ActivityKind.Job || GetTaskRunAsynchronously(context));
+    }
+
+    private static bool GetTaskRunAsynchronously(ActivityExecutionContext context)
+    {
+        var activity = context.Activity;
+        var activityDescriptor = context.ActivityDescriptor;
+        var kind = activityDescriptor.Kind;
+
+        if (kind is not ActivityKind.Task)
+            return false;
+        
+        var runAsynchronously = activity.GetRunAsynchronously();
+        return runAsynchronously ?? activityDescriptor.RunAsynchronously;
     }
 
     private static bool GetIsBackgroundExecution(ActivityExecutionContext context) => context.TransientProperties.ContainsKey(BackgroundActivityExecutionContextExtensions.IsBackgroundExecution);
-    
+
     /// <summary>
     /// If the input contains captured output from the background activity invoker, apply that to the execution context.
     /// </summary>
@@ -161,7 +177,7 @@ public class BackgroundActivityInvokerMiddleware(
 
         context.WorkflowExecutionContext.Properties.Remove(bookmarksKey);
     }
-    
+
     private void CapturePropertiesIfAny(ActivityExecutionContext context)
     {
         var activity = context.Activity;
@@ -173,7 +189,7 @@ public class BackgroundActivityInvokerMiddleware(
         if (capturedProperties == null)
             return;
 
-        foreach (var property in capturedProperties) 
+        foreach (var property in capturedProperties)
             context.Properties[property.Key] = property.Value;
     }
 
@@ -222,12 +238,12 @@ public class BackgroundActivityInvokerMiddleware(
                     {
                         ExistingActivityExecutionContext = scheduledActivity.Options.ExistingActivityInstanceId != null ? context.WorkflowExecutionContext.ActivityExecutionContexts.FirstOrDefault(x => x.Id == scheduledActivity.Options.ExistingActivityInstanceId) : null,
                         Variables = scheduledActivity.Options?.Variables,
-                        CompletionCallback = !string.IsNullOrEmpty(scheduledActivity.Options?.CompletionCallback) && owner != null ? owner.Activity.GetActivityCompletionCallback(scheduledActivity.Options.CompletionCallback) : default,
+                        CompletionCallback = !string.IsNullOrEmpty(scheduledActivity.Options?.CompletionCallback) && owner != null ? owner.Activity.GetActivityCompletionCallback(scheduledActivity.Options.CompletionCallback) : null,
                         PreventDuplicateScheduling = scheduledActivity.Options?.PreventDuplicateScheduling ?? false,
                         Input = scheduledActivity.Options?.Input,
                         Tag = scheduledActivity.Options?.Tag
                     }
-                    : default;
+                    : null;
                 await context.ScheduleActivityAsync(activityNode, owner, options);
             }
         }

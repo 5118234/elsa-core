@@ -22,57 +22,64 @@ public class Tests
     }
 
     [Fact]
-    public async void SerializeFlowchartContainerTest()
+    public async Task SerializeFlowchartContainerTest()
     {
         await _services.PopulateRegistriesAsync();
 
         // Arrange
 
-        var start = new Start()
+        var start = new Start
         {
             Id = "start",
             Name = "Start",
+            RunAsynchronously = false // Manually set to false because the manual construction defaults to null,
+                                      // But deserialization uses the factory creation method that overwrites null values.
         };
         var writeLine = new WriteLine(new Input<string>(new Expression("JavaScript", "getVariable('TextVar')")))
         {
             Id = "writeLine",
             Name = "WriteLine",
             Version = 3,
+            RunAsynchronously = false // Manually set to false because the manual construction defaults to null,
+                                      // But deserialization uses the factory creation method that overwrites null values.
         };
-        var end = new End()
+        var end = new End
         {
             Id = "end",
             Name = "end",
+            RunAsynchronously = false // Manually set to false because the manual construction defaults to null,
+                                      // But deserialization uses the factory creation method that overwrites null values.
         };
-        var container = new Flowchart()
+        var container = new Flowchart
         {
             Id = "flowchart",
             Name = "Flowchart",
             Type = "Elsa.Flowchart",
             Version = 42,
-            CustomProperties = new Dictionary<string, object>()
+            CustomProperties = new Dictionary<string, object>
             {
                 { "purpose", "somePurpose" }
             },
-            Metadata = new Dictionary<string, object>()
+            Metadata = new Dictionary<string, object>
             {
                 { "int", 10 },
                 { "bool", false },
                 { "string", "str" },
             },
-            Activities = new List<IActivity>() {
+            Activities = new List<IActivity> {
                 start,
                 writeLine,
                 end
             },
-            Variables = new List<Variable>() {
+            Variables = new List<Variable> {
                 new Variable<string>("TextVar", "This is the text to write")
             },
-            Connections = new List<Connection>()
+            Connections = new List<Connection>
             {
-                new Connection(start, writeLine),
-                new Connection(writeLine, end),
+                new(start, writeLine),
+                new(writeLine, end),
             },
+            RunAsynchronously = false
         };
 
         // Act
@@ -86,39 +93,41 @@ public class Tests
     }
 
     [Fact]
-    public async void SerializeSequenceContainerTest()
+    public async Task SerializeSequenceContainerTest()
     {
         await _services.PopulateRegistriesAsync();
 
         // Arrange
-
-        var container = new Sequence()
+        var container = new Sequence
         {
             Id = "sequence",
             Name = "Sequence",
             Type = "Elsa.Sequence",
             Version = 42,
-            Variables = new List<Variable>() {
+            Variables = new List<Variable> {
                 new Variable<string>("TextVar", "This is the text to write")
             },
-            Activities = new List<IActivity>() {
+            Activities = new List<IActivity> {
                 new WriteLine(new Input<string>(new Expression("JavaScript", "getVariable('TextVar')")))
                 {
                     Id = "writeLine",
                     Name = "WriteLine",
                     CanStartWorkflow = true,
+                    RunAsynchronously = false // Manually set to false because the manual construction defaults to null,
+                                              // But deserialization uses the factory creation method that overwrites null values.
                 },
             },
-            CustomProperties = new Dictionary<string, object>()
+            CustomProperties = new Dictionary<string, object>
             {
                 {  "purpose", "somePurpose" }
             },
-            Metadata = new Dictionary<string, object>()
+            Metadata = new Dictionary<string, object>
             {
                 { "int", 10 },
                 { "bool", false },
                 { "string", "str"},
-            }
+            },
+            RunAsynchronously = false
         };
 
         // Act
@@ -132,39 +141,42 @@ public class Tests
     }
 
     [Fact]
-    public async void SerializeParallelContainerTest()
+    public async Task SerializeParallelContainerTest()
     {
         await _services.PopulateRegistriesAsync();
 
         // Arrange
-
-        var container = new Workflows.Activities.Parallel()
+        var container = new Workflows.Activities.Parallel
         {
             Id = "parallel",
             Name = "Parallel",
             Type = "Elsa.Parallel",
             Version = 42,
-            Variables = new List<Variable>() {
+            Variables = new List<Variable> {
                 new Variable<string>("TextVar", "This is the text to write")
             },
-            Activities = new List<IActivity>() {
+            Activities = new List<IActivity> {
                 new WriteLine(new Input<string>(new Expression("JavaScript", "getVariable('TextVar')")))
                 {
                     Id = "writeLine",
                     Name = "WriteLine",
                     CanStartWorkflow = true,
+                    RunAsynchronously = false // Manually set to false because the manual construction defaults to null,
+                                              // But deserialization uses the factory creation method that overwrites null values.
+                    
                 },
             },
-            CustomProperties = new Dictionary<string, object>()
+            CustomProperties = new Dictionary<string, object>
             {
                 {  "purpose", "somePurpose" }
             },
-            Metadata = new Dictionary<string, object>()
+            Metadata = new Dictionary<string, object>
             {
                 { "int", 10 },
                 { "bool", false },
                 { "string", "str"},
-            }
+            },
+            RunAsynchronously = false
         };
 
         // Act
@@ -185,10 +197,16 @@ public class Tests
         // Assert.Equivalent has trouble with the Behavior.Owner reference - since these aren't serialzied anyway, ignore them
         deserializedContainer.Behaviors.Clear();
         container.Behaviors.Clear();
-        foreach (Activity activity in deserializedContainer.Activities)
+        foreach (var activity1 in deserializedContainer.Activities)
+        {
+            var activity = (Activity)activity1;
             activity.Behaviors.Clear();
-        foreach (Activity activity in container.Activities)
+        }
+
+        foreach (var activity in container.Activities.Cast<Activity>())
+        {
             activity.Behaviors.Clear();
+        }
 
         // strict:false here allows "actual" to have extra public members that aren't part of "expected", and collection
         // comparison allows "actual" to have more data in it than is present in "expected".

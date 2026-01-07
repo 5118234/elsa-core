@@ -48,20 +48,21 @@ internal class Export : ElsaEndpoint<Request>
     {
         if (request.DefinitionId != null)
             await DownloadSingleWorkflowAsync(request.DefinitionId, request.VersionOptions, cancellationToken);
-        else
+        else if (request.Ids != null)
             await DownloadMultipleWorkflowsAsync(request.Ids, cancellationToken);
+        else await Send.NoContentAsync(cancellationToken);
     }
 
     private async Task DownloadMultipleWorkflowsAsync(ICollection<string> ids, CancellationToken cancellationToken)
     {
-        List<WorkflowDefinition> definitions = (await _store.FindManyAsync(new WorkflowDefinitionFilter
+        List<WorkflowDefinition> definitions = (await _store.FindManyAsync(new()
         {
             Ids = ids
         }, cancellationToken)).ToList();
 
         if (!definitions.Any())
         {
-            await SendNoContentAsync(cancellationToken);
+            await Send.NoContentAsync(cancellationToken);
             return;
         }
 
@@ -82,13 +83,13 @@ internal class Export : ElsaEndpoint<Request>
 
         // Send the zip file to the client:
         zipStream.Position = 0;
-        await SendBytesAsync(zipStream.ToArray(), "workflow-definitions.zip", cancellation: cancellationToken);
+        await Send.BytesAsync(zipStream.ToArray(), "workflow-definitions.zip", cancellation: cancellationToken);
     }
 
     private async Task DownloadSingleWorkflowAsync(string definitionId, string? versionOptions, CancellationToken cancellationToken)
     {
         var parsedVersionOptions = string.IsNullOrEmpty(versionOptions) ? VersionOptions.Latest : VersionOptions.FromString(versionOptions);
-        WorkflowDefinition? definition = (await _store.FindManyAsync(new WorkflowDefinitionFilter
+        WorkflowDefinition? definition = (await _store.FindManyAsync(new()
         {
             DefinitionId = definitionId,
             VersionOptions = parsedVersionOptions
@@ -96,7 +97,7 @@ internal class Export : ElsaEndpoint<Request>
 
         if (definition == null)
         {
-            await SendNotFoundAsync(cancellationToken);
+            await Send.NotFoundAsync(cancellationToken);
             return;
         }
 
@@ -104,7 +105,7 @@ internal class Export : ElsaEndpoint<Request>
         var binaryJson = await SerializeWorkflowDefinitionAsync(model, cancellationToken);
         var fileName = GetFileName(model);
 
-        await SendBytesAsync(binaryJson, fileName, cancellation: cancellationToken);
+        await Send.BytesAsync(binaryJson, fileName, cancellation: cancellationToken);
     }
 
     private string GetFileName(WorkflowDefinitionModel definition)

@@ -14,6 +14,7 @@ using Elsa.Features.Attributes;
 using Elsa.Features.Services;
 using Elsa.Workflows.Features;
 using Elsa.Workflows.LogPersistence;
+using Elsa.Workflows.Management.Activities.HostMethod;
 using Elsa.Workflows.Management.Activities.WorkflowDefinitionActivity;
 using Elsa.Workflows.Management.Contracts;
 using Elsa.Workflows.Management.Entities;
@@ -28,6 +29,7 @@ using Elsa.Workflows.Management.Stores;
 using Elsa.Workflows.Serialization.Serializers;
 using JetBrains.Annotations;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Elsa.Workflows.Management.Features;
 
@@ -51,6 +53,7 @@ public class WorkflowManagementFeature(IModule module) : FeatureBase(module)
     private const string SystemCategory = "System";
 
     private Func<IServiceProvider, IWorkflowDefinitionPublisher> _workflowDefinitionPublisher = sp => ActivatorUtilities.CreateInstance<WorkflowDefinitionPublisher>(sp);
+    private Func<IServiceProvider, IWorkflowReferenceQuery> _workflowReferenceQuery = sp => ActivatorUtilities.CreateInstance<DefaultWorkflowReferenceQuery>(sp);
 
     private string CompressionAlgorithm { get; set; } = nameof(None);
     private LogPersistenceMode LogPersistenceMode { get; set; } = LogPersistenceMode.Include;
@@ -138,6 +141,28 @@ public class WorkflowManagementFeature(IModule module) : FeatureBase(module)
     }
 
     /// <summary>
+    /// Configures the system to add a specific activity host type to the workflow management feature.
+    /// </summary>
+    /// <typeparam name="T">The type of the activity host to be added.</typeparam>
+    /// <param name="key">An optional unique key to associate with the activity host type.</param>
+    public WorkflowManagementFeature AddActivityHost<T>(string? key = null) where T : class
+    {
+        Module.Services.Configure<HostMethodActivitiesOptions>(options => options.AddType<T>(key));
+        return this;
+    }
+    
+    /// <summary>
+    /// Configures the system to add a specific activity host type to the workflow management feature.
+    /// </summary>
+    /// <param name="hostType">The type of the activity host to be added.</param>
+    /// <param name="key">An optional unique key to associate with the activity host type.</param>
+    public WorkflowManagementFeature AddActivityHost(Type hostType, string? key = null)
+    {
+        Module.Services.Configure<HostMethodActivitiesOptions>(options => options.AddType(hostType, key));
+        return this;
+    }
+
+    /// <summary>
     /// Adds the specified variable type to the system.
     /// </summary>
     public WorkflowManagementFeature AddVariableType<T>(string category) => AddVariableType(typeof(T), category);
@@ -191,9 +216,21 @@ public class WorkflowManagementFeature(IModule module) : FeatureBase(module)
         return this;
     }
 
-    public WorkflowManagementFeature WithWorkflowDefinitionPublisher(Func<IServiceProvider, IWorkflowDefinitionPublisher> workflowDefinitionPublisher)
+    public WorkflowManagementFeature UseWorkflowDefinitionPublisher(Func<IServiceProvider, IWorkflowDefinitionPublisher> workflowDefinitionPublisher)
     {
         _workflowDefinitionPublisher = workflowDefinitionPublisher;
+        return this;
+    }
+    
+    public WorkflowManagementFeature UseWorkflowReferenceFinder<T>() where T : class, IWorkflowReferenceQuery
+    {
+        Services.TryAddScoped<T>();
+        return UseWorkflowReferenceFinder(sp => sp.GetRequiredService<T>());
+    }
+    
+    public WorkflowManagementFeature UseWorkflowReferenceFinder(Func<IServiceProvider, IWorkflowReferenceQuery> workflowReferenceFinder)
+    {
+        _workflowReferenceQuery = workflowReferenceFinder;
         return this;
     }
 
@@ -208,33 +245,38 @@ public class WorkflowManagementFeature(IModule module) : FeatureBase(module)
     public override void Apply()
     {
         Services
-            .AddMemoryStore<WorkflowDefinition, MemoryWorkflowDefinitionStore>()
-            .AddMemoryStore<WorkflowInstance, MemoryWorkflowInstanceStore>()
-            .AddActivityProvider<TypedActivityProvider>()
-            .AddActivityProvider<WorkflowDefinitionActivityProvider>()
-            .AddScoped<WorkflowDefinitionActivityProvider>()
-            .AddScoped<IWorkflowDefinitionActivityRegistryUpdater, WorkflowDefinitionActivityRegistryUpdater>()
-            .AddScoped<IWorkflowDefinitionService, WorkflowDefinitionService>()
-            .AddScoped<IWorkflowSerializer, WorkflowSerializer>()
-            .AddScoped<IWorkflowValidator, WorkflowValidator>()
-            .AddScoped(_workflowDefinitionPublisher)
-            .AddScoped<IWorkflowDefinitionImporter, WorkflowDefinitionImporter>()
-            .AddScoped<IWorkflowDefinitionManager, WorkflowDefinitionManager>()
-            .AddScoped<IWorkflowInstanceManager, WorkflowInstanceManager>()
-            .AddScoped<IWorkflowReferenceUpdater, WorkflowReferenceUpdater>()
-            .AddScoped<IActivityRegistryPopulator, ActivityRegistryPopulator>()
-            .AddSingleton<IExpressionDescriptorRegistry, ExpressionDescriptorRegistry>()
-            .AddSingleton<IExpressionDescriptorProvider, DefaultExpressionDescriptorProvider>()
-            .AddSerializationOptionsConfigurator<SerializationOptionsConfigurator>()
-            .AddScoped<IWorkflowMaterializer, TypedWorkflowMaterializer>()
-            .AddScoped<IWorkflowMaterializer, ClrWorkflowMaterializer>()
-            .AddScoped<IWorkflowMaterializer, JsonWorkflowMaterializer>()
-            .AddScoped<IActivityResolver, WorkflowDefinitionActivityResolver>()
-            .AddScoped<IWorkflowInstanceVariableManager, WorkflowInstanceVariableManager>()
-            .AddScoped<WorkflowDefinitionMapper>()
-            .AddSingleton<VariableDefinitionMapper>()
-            .AddSingleton<WorkflowStateMapper>()
-            ;
+             .AddMemoryStore<WorkflowDefinition, MemoryWorkflowDefinitionStore>()
+             .AddMemoryStore<WorkflowInstance, MemoryWorkflowInstanceStore>()
+             .AddActivityProvider<TypedActivityProvider>()
+             .AddActivityProvider<WorkflowDefinitionActivityProvider>()
+             .AddActivityProvider<HostMethodActivityProvider>()
+             .AddScoped<IHostMethodActivityDescriber, HostMethodActivityDescriber>()
+             .AddScoped<IHostMethodParameterValueProvider, DefaultHostMethodParameterValueProvider>()
+             .AddScoped<WorkflowDefinitionActivityDescriptorFactory>()
+             .AddScoped<WorkflowDefinitionActivityProvider>()
+             .AddScoped<IWorkflowDefinitionActivityRegistryUpdater, WorkflowDefinitionActivityRegistryUpdater>()
+             .AddScoped<IWorkflowDefinitionService, WorkflowDefinitionService>()
+             .AddScoped<IWorkflowSerializer, WorkflowSerializer>()
+             .AddScoped<IWorkflowValidator, WorkflowValidator>()
+             .AddScoped(_workflowReferenceQuery)
+             .AddScoped(_workflowDefinitionPublisher)
+             .AddScoped<IWorkflowDefinitionImporter, WorkflowDefinitionImporter>()
+             .AddScoped<IWorkflowDefinitionManager, WorkflowDefinitionManager>()
+             .AddScoped<IWorkflowInstanceManager, WorkflowInstanceManager>()
+             .AddScoped<IWorkflowReferenceUpdater, WorkflowReferenceUpdater>()
+             .AddScoped<IActivityRegistryPopulator, ActivityRegistryPopulator>()
+             .AddSingleton<IExpressionDescriptorRegistry, ExpressionDescriptorRegistry>()
+             .AddSingleton<IExpressionDescriptorProvider, DefaultExpressionDescriptorProvider>()
+             .AddSerializationOptionsConfigurator<SerializationOptionsConfigurator>()
+             .AddScoped<IWorkflowMaterializer, TypedWorkflowMaterializer>()
+             .AddScoped<IWorkflowMaterializer, ClrWorkflowMaterializer>()
+             .AddScoped<IWorkflowMaterializer, JsonWorkflowMaterializer>()
+             .AddScoped<IActivityResolver, WorkflowDefinitionActivityResolver>()
+             .AddScoped<IWorkflowInstanceVariableManager, WorkflowInstanceVariableManager>()
+             .AddScoped<WorkflowDefinitionMapper>()
+             .AddSingleton<VariableDefinitionMapper>()
+             .AddSingleton<WorkflowStateMapper>()
+             ;
 
         Services
             .AddNotificationHandler<DeleteWorkflowInstances>()
@@ -255,5 +297,7 @@ public class WorkflowManagementFeature(IModule module) : FeatureBase(module)
             options.LogPersistenceMode = LogPersistenceMode;
             options.IsReadOnlyMode = IsReadOnlyMode;
         });
+
+        Services.Configure<HostMethodActivitiesOptions>(_ => { });
     }
 }
